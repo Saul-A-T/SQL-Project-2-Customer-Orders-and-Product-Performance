@@ -1,0 +1,209 @@
+-- Project 03: Customer Orders and Product Performance
+-- Database: SQLite
+-- Run this entire file in SQLite. It resets only the project tables below.
+
+PRAGMA foreign_keys = ON;
+
+DROP TABLE IF EXISTS order_items;
+DROP TABLE IF EXISTS orders;
+DROP TABLE IF EXISTS products;
+DROP TABLE IF EXISTS customers;
+
+CREATE TABLE customers (
+    customer_id INTEGER PRIMARY KEY,
+    customer_name TEXT NOT NULL,
+    city TEXT NOT NULL,
+    signup_date TEXT NOT NULL
+);
+
+CREATE TABLE products (
+    product_id INTEGER PRIMARY KEY,
+    product_name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    unit_price REAL NOT NULL CHECK (unit_price >= 0)
+);
+
+CREATE TABLE orders (
+    order_id INTEGER PRIMARY KEY,
+    customer_id INTEGER NOT NULL REFERENCES customers(customer_id),
+    order_date TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('completed', 'shipped', 'cancelled'))
+);
+
+CREATE TABLE order_items (
+    order_id INTEGER NOT NULL REFERENCES orders(order_id),
+    product_id INTEGER NOT NULL REFERENCES products(product_id),
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    sale_price REAL NOT NULL CHECK (sale_price >= 0),
+    PRIMARY KEY (order_id, product_id)
+);
+
+INSERT INTO customers (customer_id, customer_name, city, signup_date) VALUES
+    (1, 'Avery Chen', 'Boston', '2025-10-12'),
+    (2, 'Jordan Patel', 'Chicago', '2025-11-03'),
+    (3, 'Morgan Reyes', 'Boston', '2025-11-18'),
+    (4, 'Taylor Kim', 'Seattle', '2025-12-02'),
+    (5, 'Riley Brooks', 'Austin', '2025-12-15'),
+    (6, 'Casey Nguyen', 'Chicago', '2026-01-04');
+
+INSERT INTO products (product_id, product_name, category, unit_price) VALUES
+    (1, 'Wireless Mouse', 'Electronics', 24.99),
+    (2, 'Mechanical Keyboard', 'Electronics', 79.00),
+    (3, 'Desk Lamp', 'Home', 39.95),
+    (4, 'Notebook Set', 'Stationery', 12.50),
+    (5, 'Water Bottle', 'Accessories', 18.50),
+    (6, 'USB-C Hub', 'Electronics', 44.00);
+
+INSERT INTO orders (order_id, customer_id, order_date, status) VALUES
+    (1001, 1, '2026-01-05', 'completed'),
+    (1002, 2, '2026-01-07', 'shipped'),
+    (1003, 1, '2026-01-12', 'completed'),
+    (1004, 3, '2026-01-15', 'cancelled'),
+    (1005, 4, '2026-01-18', 'completed'),
+    (1006, 5, '2026-01-21', 'shipped'),
+    (1007, 2, '2026-02-02', 'completed'),
+    (1008, 6, '2026-02-04', 'completed'),
+    (1009, 3, '2026-02-10', 'completed'),
+    (1010, 4, '2026-02-14', 'cancelled');
+
+-- sale_price records the price at purchase time, even if the catalog price changes later.
+INSERT INTO order_items (order_id, product_id, quantity, sale_price) VALUES
+    (1001, 1, 1, 24.99), (1001, 4, 2, 12.50),
+    (1002, 2, 1, 79.00), (1002, 6, 1, 44.00),
+    (1003, 3, 1, 39.95), (1003, 5, 2, 18.50),
+    (1004, 1, 2, 23.99),
+    (1005, 2, 1, 75.00), (1005, 3, 1, 39.95),
+    (1006, 4, 3, 12.00), (1006, 5, 1, 18.50),
+    (1007, 1, 2, 24.99), (1007, 6, 1, 42.00),
+    (1008, 3, 2, 37.95), (1008, 4, 1, 12.50),
+    (1009, 2, 1, 79.00), (1009, 5, 1, 18.50),
+    (1010, 6, 1, 44.00);
+
+-- 1. Order detail: join orders, customers, items, and products.
+-- Cancelled orders are excluded from sales reporting.
+SELECT
+    o.order_id,
+    o.order_date,
+    c.customer_name,
+    p.product_name,
+    oi.quantity,
+    oi.sale_price,
+    ROUND(oi.quantity * oi.sale_price, 2) AS line_revenue
+FROM orders AS o
+JOIN customers AS c ON c.customer_id = o.customer_id
+JOIN order_items AS oi ON oi.order_id = o.order_id
+JOIN products AS p ON p.product_id = oi.product_id
+WHERE o.status <> 'cancelled'
+ORDER BY o.order_date, o.order_id, p.product_name;
+
+-- 2. Revenue and item count per eligible order.
+WITH order_totals AS (
+    SELECT
+        o.order_id,
+        o.customer_id,
+        o.order_date,
+        SUM(oi.quantity * oi.sale_price) AS order_revenue,
+        SUM(oi.quantity) AS item_count
+    FROM orders AS o
+    JOIN order_items AS oi ON oi.order_id = o.order_id
+    WHERE o.status IN ('completed', 'shipped')
+    GROUP BY o.order_id, o.customer_id, o.order_date
+)
+SELECT
+    ot.order_id,
+    ot.order_date,
+    c.customer_name,
+    ROUND(ot.order_revenue, 2) AS order_revenue,
+    ot.item_count
+FROM order_totals AS ot
+JOIN customers AS c ON c.customer_id = ot.customer_id
+ORDER BY ot.order_revenue DESC, ot.order_id;
+
+-- 3. Category revenue and units sold, excluding cancelled orders.
+SELECT
+    p.category,
+    SUM(oi.quantity) AS units_sold,
+    ROUND(SUM(oi.quantity * oi.sale_price), 2) AS category_revenue
+FROM orders AS o
+JOIN order_items AS oi ON oi.order_id = o.order_id
+JOIN products AS p ON p.product_id = oi.product_id
+WHERE o.status IN ('completed', 'shipped')
+GROUP BY p.category
+ORDER BY category_revenue DESC, p.category;
+
+-- 4. Customer lifetime value in this sample and number of eligible orders.
+SELECT
+    c.customer_id,
+    c.customer_name,
+    COUNT(DISTINCT o.order_id) AS order_count,
+    ROUND(SUM(oi.quantity * oi.sale_price), 2) AS customer_revenue
+FROM customers AS c
+JOIN orders AS o ON o.customer_id = c.customer_id
+JOIN order_items AS oi ON oi.order_id = o.order_id
+WHERE o.status IN ('completed', 'shipped')
+GROUP BY c.customer_id, c.customer_name
+ORDER BY customer_revenue DESC, c.customer_name;
+
+-- 5. Include customers with no eligible orders using LEFT JOIN.
+SELECT
+    c.customer_name,
+    COUNT(DISTINCT CASE WHEN o.status IN ('completed', 'shipped') THEN o.order_id END) AS order_count,
+    ROUND(COALESCE(SUM(CASE WHEN o.status IN ('completed', 'shipped')
+        THEN oi.quantity * oi.sale_price END), 0), 2) AS customer_revenue
+FROM customers AS c
+LEFT JOIN orders AS o ON o.customer_id = c.customer_id
+LEFT JOIN order_items AS oi ON oi.order_id = o.order_id
+GROUP BY c.customer_id, c.customer_name
+ORDER BY customer_revenue DESC, c.customer_name;
+
+-- 6. Monthly revenue using a common table expression.
+SELECT
+    strftime('%Y-%m', o.order_date) AS order_month,
+    ROUND(SUM(oi.quantity * oi.sale_price), 2) AS monthly_revenue
+FROM orders AS o
+JOIN order_items AS oi ON oi.order_id = o.order_id
+WHERE o.status IN ('completed', 'shipped')
+GROUP BY strftime('%Y-%m', o.order_date)
+ORDER BY order_month;
+
+-- 7. Rank products by revenue within each category (window function).
+WITH product_revenue AS (
+    SELECT
+        p.product_id,
+        p.product_name,
+        p.category,
+        SUM(oi.quantity * oi.sale_price) AS revenue
+    FROM products AS p
+    JOIN order_items AS oi ON oi.product_id = p.product_id
+    JOIN orders AS o ON o.order_id = oi.order_id
+    WHERE o.status IN ('completed', 'shipped')
+    GROUP BY p.product_id, p.product_name, p.category
+)
+SELECT
+    category,
+    product_name,
+    ROUND(revenue, 2) AS product_revenue,
+    RANK() OVER (PARTITION BY category ORDER BY revenue DESC) AS category_rank
+FROM product_revenue
+ORDER BY category, category_rank, product_name;
+
+-- 8. Compare each month's revenue with the previous month.
+WITH monthly_revenue AS (
+    SELECT
+        strftime('%Y-%m', o.order_date) AS order_month,
+        SUM(oi.quantity * oi.sale_price) AS revenue
+    FROM orders AS o
+    JOIN order_items AS oi ON oi.order_id = o.order_id
+    WHERE o.status IN ('completed', 'shipped')
+    GROUP BY strftime('%Y-%m', o.order_date)
+)
+SELECT
+    order_month,
+    ROUND(revenue, 2) AS revenue,
+    ROUND(LAG(revenue) OVER (ORDER BY order_month), 2) AS previous_month_revenue,
+    ROUND(revenue - LAG(revenue) OVER (ORDER BY order_month), 2) AS change_from_previous_month
+FROM monthly_revenue
+ORDER BY order_month;
+
+--- You have reached the end. Thanks for looking at my code. 
+--- SAT
