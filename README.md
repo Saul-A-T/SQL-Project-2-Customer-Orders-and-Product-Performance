@@ -1,4 +1,4 @@
-# SQL-Project-2-Customer-Orders-and-Product-Performance
+# SQL-Project-3-Customer-Orders-and-Product-Performance
 
 A fictional shop dataset that grows the earlier single-table sales exercises into a relational database. The project includes customers, orders, products, and order items, with purchase-time prices and order statuses.
 
